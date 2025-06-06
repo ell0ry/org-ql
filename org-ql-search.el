@@ -1,7 +1,5 @@
 ;;; org-ql-search.el --- Search commands for org-ql  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2023  Adam Porter
-
 ;; Author: Adam Porter <adam@alphapapa.net>
 ;; Url: https://github.com/alphapapa/org-ql
 
@@ -40,40 +38,10 @@
 (require 'org-ql)
 (require 'org-ql-view)
 
-(declare-function org-ql--normalize-query "org-ql" t t)
-
-;;;; Compatibility
-
-(defalias 'org-ql-search--link-heading-search-string
-  (cond ((fboundp 'org-link--normalize-string) #'org-link--normalize-string)
-        ((fboundp 'org-link-heading-search-string) #'org-link-heading-search-string)
-        ((fboundp 'org-make-org-heading-search-string) #'org-make-org-heading-search-string)
-        (t (error "org-ql: Unable to define alias `org-ql-search--link-heading-search-string'.  This may affect links in dynamic blocks.  Please report this as a bug"))))
-
-(defalias 'org-ql-search--org-make-link-string
-  (cond ((fboundp 'org-link-make-string) #'org-link-make-string)
-        ((fboundp 'org-make-link-string) #'org-make-link-string)
-        (t (error "org-ql: Unable to define alias `org-ql-search--org-make-link-string'.  Please report this as a bug"))))
-
-(defalias 'org-ql-search--org-link-store-props
-  (cond ((fboundp 'org-link-store-props) #'org-link-store-props)
-        ((fboundp 'org-store-link-props) #'org-store-link-props)
-        (t (error "org-ql: Unable to define alias `org-ql-search--org-link-store-props'.  Please report this as a bug"))))
-
-(defalias 'org-ql--org-hide-archived-subtrees
-  (if (version<= "9.6" org-version)
-      'org-fold-hide-archived-subtrees
-    'org-hide-archived-subtrees))
-
-(defalias 'org-ql--org-show-context
-  (if (version<= "9.6" org-version)
-      'org-fold-show-context
-    'org-show-context))
-
 ;;;; Variables
 
 (defvar org-ql-block-header nil
-  "Optional string overriding default header in `org-ql-block' agenda blocks.")
+  "An optional string to override the default header in `org-ql-block' agenda blocks.")
 
 ;;;; Customization
 
@@ -87,8 +55,8 @@ Files matching this regexp will be searched.  By default,
 \".org\" files are matched, but you may also select to include
 \".org_archive\" files, or use a custom regexp."
   :type '(radio (const :tag "Normal \".org\" files" :value "\.org$")
-          (const :tag "Also include \".org_archive\" files" "\.org\\(_archive\\)?$")
-          (string :tag "Custom regular expression")))
+                (const :tag "Also include \".org_archive\" files" "\.org\\(_archive\\)?$")
+                (string :tag "Custom regular expression")))
 
 (defcustom org-ql-search-directories-files-recursive nil
   "Recurse into subdirectories by default in `org-ql-search-directories-files'.
@@ -107,8 +75,8 @@ directories, etc, which would make it slow to list the
 The tree will show the lines where the query matches, and any
 other context defined in `org-show-context-detail', which see.
 
-QUERY is an `org-ql' query in either sexp or string form (see
-Info node `(org-ql)Queries').
+QUERY is an `org-ql' query sexp (quoted, since this is a
+function).  BUFFER defaults to the current buffer.
 
 When KEEP-PREVIOUS is non-nil (interactively, with prefix), the
 outline is not reset to the overview state before finding
@@ -116,7 +84,7 @@ matches, which allows stacking calls to this command.
 
 Runs `org-occur-hook' after making the sparse tree."
   ;; Code based on `org-occur'.
-  (interactive (list (read-string "Query: ")
+  (interactive (list (read-minibuffer "Query: ")
                      :keep-previous current-prefix-arg))
   (with-current-buffer buffer
     (unless keep-previous
@@ -124,24 +92,14 @@ Runs `org-occur-hook' after making the sparse tree."
       ;; we remove existing `org-occur' highlights, just in case.
       (org-remove-occur-highlights nil nil t)
       (org-overview))
-    (let ((num-results 0)
-          (query (pcase-exhaustive query
-                   ((and (pred stringp)
-                         (rx bos (0+ blank) (or "(" "\"")))
-                    ;; Read sexp query from string.
-                    (read query))
-                   ((pred stringp)
-                    ;; Parse string query into sexp query.
-                    (org-ql--query-string-to-sexp query))
-                   ((pred listp)
-                    ;; Sexp query.
-                    query))))
+    (let ((num-results 0))
+      ;; FIXME: Accept plain queries as well.
       (org-ql-select buffer query
         :action (lambda ()
-                  (org-ql--org-show-context 'occur-tree)
+                  (org-show-context 'occur-tree)
                   (cl-incf num-results)))
       (unless org-sparse-tree-open-archived-trees
-        (org-ql--org-hide-archived-subtrees (point-min) (point-max)))
+        (org-hide-archived-subtrees (point-min) (point-max)))
       (run-hooks 'org-occur-hook)
       (unless (get-buffer-window buffer)
         (pop-to-buffer buffer))
@@ -171,7 +129,7 @@ SUPER-GROUPS: An `org-super-agenda' group set.  See variable
 selectors'.
 
 NARROW: When non-nil, don't widen buffers before
-searching.  Interactively, with prefix, leave narrowed.
+searching. Interactively, with prefix, leave narrowed.
 
 SORT: One or a list of `org-ql' sorting functions, like `date' or
 `priority' (see Info node `(org-ql)Listing / acting-on results').
@@ -186,7 +144,7 @@ necessary."
   (interactive (list (org-ql-view--complete-buffers-files)
                      (read-string "Query: " (when org-ql-view-query
                                               (format "%S" org-ql-view-query)))
-                     :narrow (or org-ql-view-narrow (equal current-prefix-arg '(4)))
+                     :narrow (or org-ql-view-narrow (eq current-prefix-arg '(4)))
                      :super-groups (org-ql-view--complete-super-groups)
                      :sort (org-ql-view--complete-sort)))
   ;; NOTE: Using `with-temp-buffer' is a hack to work around the fact that `make-local-variable'
@@ -222,7 +180,8 @@ necessary."
                                          (symbol (symbol-value super-groups))
                                          (list super-groups))))
           (setf strings (org-super-agenda--group-items strings))))
-      (org-ql-view--display :buffer buffer :header header :strings strings))))
+      (org-ql-view--display :buffer buffer :header header
+        :string (s-join "\n" strings)))))
 
 ;;;###autoload
 (defun org-ql-search-block (query)
@@ -235,7 +194,7 @@ Like other agenda block commands, it searches files returned by
 function `org-agenda-files'.  Inserts a newline after the block.
 
 If `org-ql-block-header' is non-nil, it is used as the header
-string for the block, otherwise the header is formed
+string for the block, otherwise a the header is formed
 automatically from the query."
   (let (narrow-p old-beg old-end)
     (when-let* ((from (pcase org-agenda-restrict
@@ -265,9 +224,9 @@ automatically from the query."
       ;; `org-agenda-multi' is bound non-nil, in which case `org-agenda-finalize' does nothing.
       ;; But we do call `org-agenda-finalize-entries', which allows `org-super-agenda' to work.
       (->> items
-           (-map #'org-ql-view--format-element)
-           org-agenda-finalize-entries
-           insert)
+        (-map #'org-ql-view--format-element)
+        org-agenda-finalize-entries
+        insert)
       (insert "\n"))))
 
 ;;;###autoload
@@ -318,14 +277,13 @@ Valid parameters include:
   :ts-format  Optional format string used to format
               timestamp-based columns.
 
-For example, an org-ql dynamic block header could look like
-this (must be a single line in the Org buffer):
+For example, an org-ql dynamic block header could look like:
 
   #+BEGIN: org-ql :query (todo \"UNDERWAY\") :columns (priority todo heading) :sort (priority date) :ts-format \"%Y-%m-%d %H:%M\""
   (-let* (((&plist :scope :query :columns :sort :ts-format :take) params)
           (query (cl-etypecase query
                    (string (org-ql--query-string-to-sexp query))
-                   (list ;; SAFETY: Query is in sexp form: ask for confirmation, because it could contain arbitrary code.
+                   (list  ;; SAFETY: Query is in sexp form: ask for confirmation, because it could contain arbitrary code.
                     (org-ql--ask-unsafe-query query)
                     query)))
           (columns (or columns '(heading todo (priority "P"))))
@@ -376,17 +334,17 @@ this (must be a single line in the Org buffer):
       (setf elements (cl-etypecase take
                        ((and integer (satisfies cl-minusp)) (-take-last (abs take) elements))
                        (integer (-take take elements)))))
-    (cl-labels ((format-element (element)
-                  (string-join (cl-loop for column in columns
-                                        collect (or (pcase-exhaustive column
-                                                      ((pred symbolp)
-                                                       (funcall (alist-get column format-fns) element))
-                                                      (`((,column . ,args) ,_header)
-                                                       (apply (alist-get column format-fns) element args))
-                                                      (`(,column ,_header)
-                                                       (funcall (alist-get column format-fns) element)))
-                                                    ""))
-                               " | ")))
+    (cl-labels ((format-element
+                 (element) (string-join (cl-loop for column in columns
+                                                 collect (or (pcase-exhaustive column
+                                                               ((pred symbolp)
+                                                                (funcall (alist-get column format-fns) element))
+                                                               (`((,column . ,args) ,_header)
+                                                                (apply (alist-get column format-fns) element args))
+                                                               (`(,column ,_header)
+                                                                (funcall (alist-get column format-fns) element)))
+                                                             ""))
+                                        " | ")))
       ;; Table header
       (insert "| " (string-join (--map (pcase it
                                          ((pred symbolp) (capitalize (symbol-name it)))
@@ -394,7 +352,7 @@ this (must be a single line in the Org buffer):
                                        columns)
                                 " | ")
               " |" "\n")
-      (insert "|- \n")                  ; Separator hline
+      (insert "|- \n")  ; Separator hline
       (dolist (element elements)
         (insert "| " (format-element element) " |" "\n"))
       (delete-char -1)
@@ -402,24 +360,18 @@ this (must be a single line in the Org buffer):
 
 ;;;; Functions
 
-(defvar org-ql-search-directories-files-error
-  ;; Workaround to silence byte-compiler which thinks having this string in an
-  ;; argument's default value form is a too-long docstring.
-  "No DIRECTORIES given, and `org-directory' doesn't exist")
-
 (cl-defun org-ql-search-directories-files
-    (&key (directories
-           (if (file-exists-p org-directory)
-               (list org-directory)
-             (user-error org-ql-search-directories-files-error)))
+    (&key (directories (if (file-exists-p org-directory)
+                           (list org-directory)
+                         (user-error "Org-ql-search-directories-files: No DIRECTORIES given, and `org-directory' doesn't exist")))
           (recurse org-ql-search-directories-files-recursive)
           (regexp org-ql-search-directories-files-regexp))
-  "Return list of matching files in DIRECTORIES.
+  "Return list of matching files in DIRECTORIES, a list of directory paths.
 When RECURSE is non-nil, recurse into subdirectories.  When
 REGEXP is non-nil, only return files that match REGEXP."
   (let ((files (->> directories
-                    (--map (f-files it nil recurse))
-                    -flatten)))
+                 (--map (f-files it nil recurse))
+                 -flatten)))
     (if regexp
         (--select (string-match regexp it)
                   files)
